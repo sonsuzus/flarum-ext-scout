@@ -50,10 +50,11 @@ class ExactTitlePostRankingStrategy implements RankingStrategyInterface
 
         $query = $search->getQuery();
         $grammar = $query->getGrammar();
+        $prefix = $query->getConnection()->getTablePrefix();
 
         $allMatchingPostsQuery = Post::whereVisibleTo($search->getActor())
             ->select('posts.discussion_id')
-            ->selectRaw('FIELD(id' . $postIdsSql . ') as priority', $postIdsMerged)
+            ->selectRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") as priority", $postIdsMerged)
             ->where('posts.type', 'comment')
             ->whereIn('id', $postIdsMerged);
 
@@ -82,7 +83,7 @@ class ExactTitlePostRankingStrategy implements RankingStrategyInterface
                 'posts.discussion_id'
             )
             ->whereIn('id', $postIdsMerged)
-            ->whereRaw('FIELD(id' . $postIdsSql . ') = best_matching_posts.min_priority', $postIdsMerged)
+            ->whereRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") = best_matching_posts.min_priority", $postIdsMerged)
             ->addBinding($bestMatchingPostQuery->getBindings(), 'join');
 
         $exactPostsDiscussionsQuery = Post::whereVisibleTo($search->getActor())
@@ -124,23 +125,24 @@ class ExactTitlePostRankingStrategy implements RankingStrategyInterface
             $postIdsSql,
             $postIdsMerged
         ) {
+            $prefix = $query->getConnection()->getTablePrefix();
             $query
                 ->orderByRaw(
-                    'CASE ' .
-                    'WHEN discussions.id IN (' . $discussionExactTitleIdsSql . ') THEN 0 ' .
-                    'WHEN exact_posts.discussion_id IS NOT NULL THEN 1 ' .
-                    'WHEN discussions.id IN (' . $discussionIdsSql . ') THEN 2 ' .
-                    'WHEN posts_ft.most_relevant_post_id IS NOT NULL THEN 3 ' .
-                    'ELSE 4 END',
+                    "CASE " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionExactTitleIdsSql . ") THEN 0 " .
+                    "WHEN exact_posts.discussion_id IS NOT NULL THEN 1 " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionIdsSql . ") THEN 2 " .
+                    "WHEN posts_ft.most_relevant_post_id IS NOT NULL THEN 3 " .
+                    "ELSE 4 END",
                     array_merge($discussionExactTitleIds, $discussionIds)
                 )
                 ->orderByRaw(
-                    'CASE ' .
-                    'WHEN discussions.id IN (' . $discussionExactTitleIdsSql . ') THEN FIELD(discussions.id, ' . $discussionExactTitleIdsSql . ') ' .
-                    'WHEN exact_posts.discussion_id IS NOT NULL THEN FIELD(posts_ft.most_relevant_post_id' . $postExactIdsSql . ') ' .
-                    'WHEN discussions.id IN (' . $discussionIdsSql . ') THEN FIELD(discussions.id, ' . $discussionIdsSql . ') ' .
-                    'WHEN posts_ft.most_relevant_post_id IS NOT NULL THEN FIELD(posts_ft.most_relevant_post_id' . $postIdsSql . ') ' .
-                    'ELSE 0 END',
+                    "CASE " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionExactTitleIdsSql . ") THEN FIELD({$prefix}discussions.id, " . $discussionExactTitleIdsSql . ") " .
+                    "WHEN exact_posts.discussion_id IS NOT NULL THEN FIELD(posts_ft.most_relevant_post_id" . $postExactIdsSql . ") " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionIdsSql . ") THEN FIELD({$prefix}discussions.id, " . $discussionIdsSql . ") " .
+                    "WHEN posts_ft.most_relevant_post_id IS NOT NULL THEN FIELD(posts_ft.most_relevant_post_id" . $postIdsSql . ") " .
+                    "ELSE 0 END",
                     array_merge(
                         $discussionExactTitleIds,
                         $discussionExactTitleIds,

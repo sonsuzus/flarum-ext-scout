@@ -32,10 +32,11 @@ class PostsOnlyRankingStrategy implements RankingStrategyInterface
 
         $query = $search->getQuery();
         $grammar = $query->getGrammar();
+        $prefix = $query->getConnection()->getTablePrefix();
 
         $allMatchingPostsQuery = Post::whereVisibleTo($search->getActor())
             ->select('posts.discussion_id')
-            ->selectRaw('FIELD(id' . $postIdsSql . ') as priority', $postIdsMerged)
+            ->selectRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") as priority", $postIdsMerged)
             ->where('posts.type', 'comment')
             ->whereIn('id', $postIdsMerged);
 
@@ -64,7 +65,7 @@ class PostsOnlyRankingStrategy implements RankingStrategyInterface
                 'posts.discussion_id'
             )
             ->whereIn('id', $postIdsMerged)
-            ->whereRaw('FIELD(id' . $postIdsSql . ') = best_matching_posts.min_priority', $postIdsMerged)
+            ->whereRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") = best_matching_posts.min_priority", $postIdsMerged)
             ->addBinding($bestMatchingPostQuery->getBindings(), 'join');
 
         $exactPostsDiscussionsQuery = Post::whereVisibleTo($search->getActor())
@@ -94,6 +95,7 @@ class PostsOnlyRankingStrategy implements RankingStrategyInterface
             ->addBinding($subquery->getBindings(), 'join')
             ->addBinding($exactPostsDiscussionsQuery->getBindings(), 'join');
 
+        // Burada alias (exact_posts vb.) kullanıldığı için prefix'e gerek duyulmadı
         $search->setDefaultSort(function ($query) use (
             $postExactIds,
             $postExactIdsSql,

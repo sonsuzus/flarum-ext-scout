@@ -47,21 +47,22 @@ class TitleOnlyRankingStrategy implements RankingStrategyInterface
             $discussionIds,
             $discussionIdsSql
         ) {
+            $prefix = $query->getConnection()->getTablePrefix();
             $query
                 ->orderByRaw(
-                    'CASE ' .
-                    'WHEN discussions.id IN (' . $discussionExactTitleIdsSql . ') THEN 0 ' .
-                    'WHEN discussions.id IN (' . $discussionExactIdsSql . ') THEN 1 ' .
-                    'WHEN discussions.id IN (' . $discussionIdsSql . ') THEN 2 ' .
-                    'ELSE 3 END',
+                    "CASE " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionExactTitleIdsSql . ") THEN 0 " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionExactIdsSql . ") THEN 1 " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionIdsSql . ") THEN 2 " .
+                    "ELSE 3 END",
                     array_merge($discussionExactTitleIds, $discussionExactIds, $discussionIds)
                 )
                 ->orderByRaw(
-                    'CASE ' .
-                    'WHEN discussions.id IN (' . $discussionExactTitleIdsSql . ') THEN FIELD(discussions.id, ' . $discussionExactTitleIdsSql . ') ' .
-                    'WHEN discussions.id IN (' . $discussionExactIdsSql . ') THEN FIELD(discussions.id, ' . $discussionExactIdsSql . ') ' .
-                    'WHEN discussions.id IN (' . $discussionIdsSql . ') THEN FIELD(discussions.id, ' . $discussionIdsSql . ') ' .
-                    'ELSE 0 END',
+                    "CASE " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionExactTitleIdsSql . ") THEN FIELD({$prefix}discussions.id, " . $discussionExactTitleIdsSql . ") " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionExactIdsSql . ") THEN FIELD({$prefix}discussions.id, " . $discussionExactIdsSql . ") " .
+                    "WHEN {$prefix}discussions.id IN (" . $discussionIdsSql . ") THEN FIELD({$prefix}discussions.id, " . $discussionIdsSql . ") " .
+                    "ELSE 0 END",
                     array_merge(
                         $discussionExactTitleIds,
                         $discussionExactTitleIds,
