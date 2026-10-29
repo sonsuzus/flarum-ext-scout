@@ -1,44 +1,38 @@
 clarkwinkelmann-scout:
-    admin:
-        setting:
-            driver: Driver
-            driverOption:
-                'null': 'Null'
-                algolia: Algolia
-                meilisearch: Meilisearch
-                tntsearch: TNTSearch
-            prefix: Index name prefix (optional)
-            queue: Process index updates in queue
-            queueHelp: This setting only has effect if an asynchronous queue driver is configured in Flarum.
-            limit: Default Results Limit
-            limitPlaceholder: Auto
-            limitHelp: >
-                This will override the number of results requested to the search engine and influence the number of pages of results that can be generated (the limit also counts content the user will not be able to see).
-                Some engines might require additional configuration to change the max allowed.
-            rankingStrategy: Discussion ranking strategy
-            rankingStrategyHelp: Choose how discussion titles and post content are prioritized in search results.
-            rankingStrategyOption:
-                default: Original Scout merge (post matches first)
-                titleFirst: Title-first (exact title > title words > exact posts > post words)
-                exactTitlePost: Exact-first (exact title > exact posts > title words > post words)
-                titleOnly: Title only (exact title > title words)
-                postsOnly: Posts only (exact posts > post words)
-            queryMinLength: Minimum query length for suggestions
-            queryMinLengthPlaceholder: Auto
-            queryMinLengthHelp: >
-                This setting only affects the suggestion dropdown of the search input in the header.
-                Flarum has a default query length of 3 characters before retrieving suggestions, which you can override with this setting.
-                The complete search result page never has any minimum query length.
-                You must clear the cache after changing this value.
-            algoliaId: Algolia ID
-            algoliaSecret: Algolia Secret
-            algoliaConnectTimeout: Algolia Connect Timeout (optional)
-            algoliaReadTimeout: Algolia Read Timeout (optional)
-            algoliaWriteTimeout: Algolia Write Timeout (optional)
-            meilisearchHost: Meilisearch Host
-            meilisearchKey: Meilisearch Key
-            tntsearchMaxDocs: TNT Search Max Docs (optional, maximum number of results)
-            tntsearchFuzziness: TNT Search Fuzziness (typos/variation matching)
-            tntsearchFuzzyDistance: TNT Search Fuzziness Levenshtein Distance (optional)
-            tntsearchFuzzyPrefixLength: TNT Search Fuzziness Prefix Length (optional)
-            tntsearchFuzzyMaxExpansions: TNT Search Fuzziness Max Expansions (optional)
+  admin:
+    setting:
+      driver: Driver
+      driverOption:
+        null: "Null"
+        algolia: Algolia
+        meilisearch: Meilisearch
+        tntsearch: TNTSearch
+      prefix: Index name prefix (optional)
+      queue: Process index updates in queue
+      queueHelp: This setting only has an effect if an asynchronous queue driver is configured in Flarum.
+      limit: Default Results Limit
+      limitPlaceholder: Auto
+      limitHelp: This will override the number of results requested from the search engine and influence how many pages of results can be generated (the limit includes non-visible content).
+      queryMinLength: Minimum Query Length for Suggestions
+      queryMinLengthPlaceholder: Auto (3)
+      queryMinLengthHelp: This setting only affects the search input dropdown in the header. Full search results always work with any query length. Refresh the page after changing this value.
+      rankingStrategy: Discussion Ranking Strategy
+      rankingStrategyHelp: Controls how matches in discussion titles vs posts are prioritized and combined.
+      rankingStrategyOption:
+        default: Default (Title & Posts weighted)
+        exact_title_post: Exact Title, then Posts
+        posts_only: Posts Only
+        title_first: Title First, then Posts
+        title_only: Title Only
+      algoliaId: Algolia ID
+      algoliaSecret: Algolia Secret
+      algoliaConnectTimeout: Algolia Connect Timeout (optional)
+      algoliaReadTimeout: Algolia Read Timeout (optional)
+      algoliaWriteTimeout: Algolia Write Timeout (optional)
+      meilisearchHost: Meilisearch Host (optional)
+      meilisearchKey: Meilisearch Key (optional)
+      tntsearchMaxDocs: TNTSearch Max Docs (optional, max results)
+      tntsearchFuzziness: TNTSearch Fuzziness (typo matching)
+      tntsearchFuzzyDistance: TNTSearch Fuzziness Levenshtein Distance (optional)
+      tntsearchFuzzyPrefixLength: TNTSearch Fuzziness Prefix Length (optional)
+      tntsearchFuzzyMaxExpansions: TNTSearch Fuzziness Max Expansions (optional)

@@ -6,79 +6,84 @@ use ClarkWinkelmann\Scout\ScoutStatic;
 use Flarum\Discussion\Discussion;
 use Flarum\Post\Post;
 use Flarum\Search\SearchState;
-use Illuminate\Database\Query\Expression;
+use Illuminate\Support\Arr;
 
 class DefaultRankingStrategy implements RankingStrategyInterface
 {
-    public function apply(SearchState $search, string$bit): void
+    public function rank(SearchState $search, string $bit): void
     {
-        $discussionBuilder = ScoutStatic::makeBuilder(Discussion::class,$bit);
+        $discussionIds = ScoutStatic::makeBuilder(Discussion::class, $bit)->keys();
 
-        $discussionIds =$discussionBuilder->keys()->all();
+        $postBuilder = ScoutStatic::makeBuilder(Post::class, $bit);
+        $rawPosts = $postBuilder->raw();
 
-        $postBuilder = ScoutStatic::makeBuilder(Post::class,$bit);
+        $postIds = [];
+        $discussionIdsFromPosts = [];
 
-        $postIds =$postBuilder->keys()->all();
-        $postIdsCount = count($postIds);
+        if (is_array($rawPosts) && isset($rawPosts['hits']) && is_array($rawPosts['hits'])) {
+            foreach ($rawPosts['hits'] as $hit) {
+                $postId = Arr::get($hit, 'id') ?? Arr::get($hit, 'objectID');
+                $discussionId = Arr::get($hit, 'discussion_id');
 
-        // We could replace the "where field" with "where false" everywhere when there are no IDs, but it's easier to
-        // keep a FIELD() statement and just hard-code some values to prevent SQL errors
-        // we know nothing will be returned anyway, so it doesn't really matter what impact it has on the query
-        $postIdsSql = $postIdsCount > 0 ? str_repeat(', ?', count($postIds)) : ', 0';
+                if ($postId && $discussionId) {
+                    $postIds[] = $postId;
+                    $discussionIdsFromPosts[$postId] = $discussionId;
+                }
+            }
+        } else {
+            $postIds = $postBuilder->keys()->all();
+            if (count($postIds) > 0) {
+                $discussionIdsFromPosts = Post::query()
+                    ->whereIn('id', $postIds)
+                    ->pluck('discussion_id', 'id')
+                    ->all();
+            }
+        }
 
-        $query =$search->getQuery();
-        $grammar =$query->getGrammar();
-        $prefix =$query->getConnection()->getTablePrefix();
+        $postsByDiscussion = [];
+        $discussionFirstMatchRank = [];
 
-        $allMatchingPostsQuery = Post::whereVisibleTo($search->getActor())
-            ->select('posts.discussion_id')
-            ->selectRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") as priority", $postIds)
-            ->where('posts.type', 'comment')
-            ->whereIn('id', $postIds);
+        foreach ($postIds as $postRank => $postId) {
+            $discussionId = Arr::get($discussionIdsFromPosts, $postId);
 
-        // Using wrap() instead of wrapTable() in join subquery to skip table prefixes
-        // Using raw() in the join table name to use the same prefixless name
-        $bestMatchingPostQuery = Post::query()
-            ->select('posts.discussion_id')
-            ->selectRaw('min(matching_posts.priority) as min_priority')
-            ->join(
-                new Expression('(' . $allMatchingPostsQuery->toSql() . ') ' . $grammar->wrap('matching_posts')),$query->raw('matching_posts.discussion_id'),
-                '=',
-                'posts.discussion_id'
-            )
-            ->groupBy('posts.discussion_id')
-            ->addBinding($allMatchingPostsQuery->getBindings(), 'join');
+            if (!$discussionId) {
+                continue;
+            }
 
-        // Code based on Flarum\Discussion\Search\Gambit\FulltextGambit
-        $subquery = Post::whereVisibleTo($search->getActor())
-            ->select('posts.discussion_id')
-            ->selectRaw('id as most_relevant_post_id')
-            ->join(
-                new Expression('(' . $bestMatchingPostQuery->toSql() . ') ' . $grammar->wrap('best_matching_posts')),$query->raw('best_matching_posts.discussion_id'),
-                '=',
-                'posts.discussion_id'
-            )
-            ->whereIn('id', $postIds)
-            ->whereRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") = best_matching_posts.min_priority", $postIds)
-            ->addBinding($bestMatchingPostQuery->getBindings(), 'join');
+            if (!isset($postsByDiscussion[$discussionId])) {
+                $postsByDiscussion[$discussionId] = [];
+                $discussionFirstMatchRank[$discussionId] = $postRank;
+            }
 
-        $query
-            ->where(function (\Illuminate\Database\Query\Builder $query) use ($discussionIds) {$query
-                    ->whereNotNull('most_relevant_post_id')
-                    ->orWhereIn('id', $discussionIds);
-            })
-            ->selectRaw('COALESCE(posts_ft.most_relevant_post_id, ' . $grammar->wrapTable('discussions') . '.first_post_id) as most_relevant_post_id')
-            ->leftJoin(
-                new Expression('(' . $subquery->toSql() . ') ' . $grammar->wrap('posts_ft')),$query->raw('posts_ft.discussion_id'),
-                '=',
-                'discussions.id'
-            )
-            ->groupBy('discussions.id')
-            ->addBinding($subquery->getBindings(), 'join');
+            $postsByDiscussion[$discussionId][] = $postId;
+        }
 
-        $search->setDefaultSort(function ($query) use ($postIdsSql,$postIds) {
-            $prefix =$query->getConnection()->getTablePrefix();
-            $query->orderByRaw("FIELD({$prefix}discussions.id" . $postIdsSql . ")", $postIds);
+        foreach ($discussionIds as $discussionRank => $discussionId) {
+            if (isset($discussionFirstMatchRank[$discussionId])) {
+                $discussionFirstMatchRank[$discussionId] = min($discussionFirstMatchRank[$discussionId], $discussionRank);
+            } else {
+                $discussionFirstMatchRank[$discussionId] = $discussionRank;
+            }
+        }
+
+        asort($discussionFirstMatchRank);
+        $sortedDiscussionIds = array_keys($discussionFirstMatchRank);
+
+        $search->setDefaultSort(function ($query) use ($sortedDiscussionIds) {
+            if (count($sortedDiscussionIds) === 0) {
+                return;
+            }
+
+            $prefix = $query->getConnection()->getTablePrefix();
+            $placeholders = implode(',', array_fill(0, count($sortedDiscussionIds), '?'));
+            $query->orderByRaw("FIELD({$prefix}discussions.id, {$placeholders})", $sortedDiscussionIds);
         });
+
+        $search->getQuery()->whereIn('discussions.id', $sortedDiscussionIds);
+
+        Discussion::register relevantPostIds:
+        foreach ($postsByDiscussion as $discussionId => $matchingPostIds) {
+            // Flarum relevant posts mapping if needed by extensions
+        }
     }
 }

@@ -3,106 +3,116 @@
 namespace ClarkWinkelmann\Scout;
 
 use Algolia\AlgoliaSearch\Config\SearchConfig;
-use Algolia\AlgoliaSearch\SearchClient as Algolia;
+use Algolia\AlgoliaSearch\SearchClient;
 use Algolia\AlgoliaSearch\Support\UserAgent;
 use Exception;
 use Flarum\Foundation\Paths;
 use Flarum\Settings\SettingsRepositoryInterface;
-use Illuminate\Database\ConnectionInterface;
 use Laravel\Scout\EngineManager;
 use Laravel\Scout\Engines\AlgoliaEngine;
+use Laravel\Scout\Engines\MeilisearchEngine;
+use Laravel\Scout\Engines\NullEngine;
+use Meilisearch\Client as MeilisearchClient;
 use TeamTNT\Scout\Engines\TNTSearchEngine;
 use TeamTNT\TNTSearch\TNTSearch;
 
 class FlarumEngineManager extends EngineManager
 {
-    /**
-     * Same as original createAlgoliaDriver() but uses Flarum settings as source
-     */
     public function createAlgoliaDriver(): AlgoliaEngine
     {
-        $this->ensureAlgoliaClientIsInstalled();
+        /** @var SettingsRepositoryInterface $settings */
+        $settings = $this->container->make(SettingsRepositoryInterface::class);
 
-        UserAgent::addCustomUserAgent('Laravel Scout', '9.4.7');
-
-        /**
-         * @var SettingsRepositoryInterface $settings
-         */
-        $settings = resolve(SettingsRepositoryInterface::class);
+        if (class_exists(UserAgent::class)) {
+            UserAgent::addCustomUserAgent('Laravel Scout', '10.0.0');
+        }
 
         $config = SearchConfig::create(
-            $settings->get('clarkwinkelmann-scout.algoliaId'),
-            $settings->get('clarkwinkelmann-scout.algoliaSecret')
-        )->setDefaultHeaders(
-            $this->defaultAlgoliaHeaders()
+            (string)$settings->get('clarkwinkelmann-scout.algoliaId'),
+            (string)$settings->get('clarkwinkelmann-scout.algoliaSecret')
         );
 
-        if (is_int($connectTimeout = $settings->get('clarkwinkelmann-scout.algoliaConnectTimeout'))) {
-            $config->setConnectTimeout($connectTimeout);
+        if ($connectTimeout = $settings->get('clarkwinkelmann-scout.algoliaConnectTimeout')) {
+            $config->setConnectTimeout((int)$connectTimeout);
         }
 
-        if (is_int($readTimeout = $settings->get('clarkwinkelmann-scout.algoliaReadTimeout'))) {
-            $config->setReadTimeout($readTimeout);
+        if ($readTimeout = $settings->get('clarkwinkelmann-scout.algoliaReadTimeout')) {
+            $config->setReadTimeout((int)$readTimeout);
         }
 
-        if (is_int($writeTimeout = $settings->get('clarkwinkelmann-scout.algoliaWriteTimeout'))) {
-            $config->setWriteTimeout($writeTimeout);
+        if ($writeTimeout = $settings->get('clarkwinkelmann-scout.algoliaWriteTimeout')) {
+            $config->setWriteTimeout((int)$writeTimeout);
         }
 
-        return new AlgoliaEngine(Algolia::createWithConfig($config));
+        return new AlgoliaEngine(SearchClient::createWithConfig($config));
+    }
+
+    public function createMeilisearchDriver(): MeilisearchEngine
+    {
+        /** @var SettingsRepositoryInterface $settings */
+        $settings = $this->container->make(SettingsRepositoryInterface::class);
+
+        $host = $settings->get('clarkwinkelmann-scout.meilisearchHost');
+        $key = $settings->get('clarkwinkelmann-scout.meilisearchKey');
+
+        return new MeilisearchEngine(
+            new MeilisearchClient(
+                $host ?: 'http://127.0.0.1:7700',
+                $key ?: null
+            )
+        );
+    }
+
+    public function createMeiliSearchDriver(): MeilisearchEngine
+    {
+        return $this->createMeilisearchDriver();
     }
 
     public function createTntsearchDriver(): TNTSearchEngine
     {
-        if (!class_exists(TNTSearch::class) || !class_exists(TNTSearchEngine::class)) {
-            throw new Exception('Please install the TNTSearch scout package: teamtnt/laravel-scout-tntsearch-driver.');
+        if (!class_exists(TNTSearch::class)) {
+            throw new Exception('Please install the TNTSearch driver package: teamtnt/laravel-scout-tntsearch-driver');
         }
 
-        $storage = resolve(Paths::class)->storage . '/tntsearch';
-
-        // TNTSearch won't create the folder automatically, so we need to do it
-        if (!file_exists($storage)) {
-            mkdir($storage);
-        }
-
-        /**
-         * @var SettingsRepositoryInterface $settings
-         */
-        $settings = resolve(SettingsRepositoryInterface::class);
+        /** @var SettingsRepositoryInterface $settings */
+        $settings = $this->container->make(SettingsRepositoryInterface::class);
+        /** @var Paths $paths */
+        $paths = $this->container->make(Paths::class);
 
         $tnt = new TNTSearch();
-        $tnt->loadConfig([
-            'storage' => $storage,
-            'searchBoolean' => true,
+
+        $storagePath = $paths->storage . '/tntsearch';
+        if (!is_dir($storagePath)) {
+            mkdir($storagePath, 0775, true);
+        }
+
+        $config = array_merge($this->container->make('flarum.db')->getConfig(), [
+            'storage' => $storagePath,
+            'fuzziness' => (bool)$settings->get('clarkwinkelmann-scout.tntsearchFuzziness'),
+            'fuzzy' => [
+                'prefix_length' => (int)($settings->get('clarkwinkelmann-scout.tntsearchFuzzyPrefixLength') ?: 2),
+                'max_expansions' => (int)($settings->get('clarkwinkelmann-scout.tntsearchFuzzyMaxExpansions') ?: 50),
+                'distance' => (int)($settings->get('clarkwinkelmann-scout.tntsearchFuzzyDistance') ?: 2),
+            ],
+            'asYouType' => false,
+            'searchBoolean' => false,
         ]);
-        $tnt->setDatabaseHandle(resolve(ConnectionInterface::class)->getPdo());
-        $tnt->maxDocs = $settings->get('clarkwinkelmann-scout.tntsearchMaxDocs') ?: 500;
-        $tnt->fuzziness = (bool)$settings->get('clarkwinkelmann-scout.tntsearchFuzziness');
-        // We could retrieve the defaults from the $tnt instance, but since we hard-code those in the javascript
-        // it's safer to also hard-code them here so we stay consistent if the default ever change
-        $tnt->fuzzy_distance = $settings->get('clarkwinkelmann-scout.tntsearchFuzzyDistance') ?: 2;
-        $tnt->fuzzy_prefix_length = $settings->get('clarkwinkelmann-scout.tntsearchFuzzyPrefixLength') ?: 50;
-        $tnt->fuzzy_max_expansions = $settings->get('clarkwinkelmann-scout.tntsearchFuzzyMaxExpansions') ?: 2;
-        $tnt->asYouType = true;
+
+        $tnt->loadConfig($config);
+        $tnt->setDatabaseHandle($this->container->make('flarum.db')->getPdo());
+
+        if ($maxDocs = $settings->get('clarkwinkelmann-scout.tntsearchMaxDocs')) {
+            $tnt->maxDocs = (int)$maxDocs;
+        }
 
         return new TNTSearchEngine($tnt);
     }
 
-    /**
-     * Same as original getDefaultDriver() but uses Flarum settings as source
-     * @return mixed|string
-     */
-    public function getDefaultDriver()
+    public function getDefaultDriver(): string
     {
-        /**
-         * @var SettingsRepositoryInterface $settings
-         */
-        $settings = resolve(SettingsRepositoryInterface::class);
+        /** @var SettingsRepositoryInterface $settings */
+        $settings = $this->container->make(SettingsRepositoryInterface::class);
 
-        if (is_null($driver = $settings->get('clarkwinkelmann-scout.driver'))) {
-            return 'null';
-        }
-
-        return $driver;
+        return $settings->get('clarkwinkelmann-scout.driver') ?: 'null';
     }
 }

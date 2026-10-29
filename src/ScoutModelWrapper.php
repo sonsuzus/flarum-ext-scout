@@ -2,87 +2,121 @@
 
 namespace ClarkWinkelmann\Scout;
 
+use Flarum\Database\AbstractModel;
 use Flarum\Settings\SettingsRepositoryInterface;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
-use Laravel\Scout\Builder;
-use Laravel\Scout\Searchable;
+use Illuminate\Support\Collection as BaseCollection;
+use Laravel\Scout\EngineManager;
+use Laravel\Scout\SearchableScope;
 
-class ScoutModelWrapper extends Model
+#[\AllowDynamicProperties]
+class ScoutModelWrapper
 {
-    use Searchable;
+    public AbstractModel $model;
 
-    protected $table = 'scout_should_not_be_used';
-
-    protected $realModel;
-
-    public function __construct(Model $realModel)
+    public function __construct(AbstractModel $model)
     {
-        parent::__construct([]);
-
-        $this->realModel = $realModel;
+        $this->model = $model;
     }
 
-    public function getRealModel(): Model
+    public function __get(string $name): mixed
     {
-        return $this->realModel;
+        return $this->model->$name;
     }
 
-    /**
-     * We could do without this method, but there are instances where we copy-pasted the original Scout code which calls
-     * newQuery() directly on the scout model, so we'll proxy it to the real underlying model
-     * @return \Illuminate\Database\Eloquent\Builder
-     */
-    public function newQuery()
+    public function __set(string $name, mixed $value): void
     {
-        return $this->realModel->newQuery();
+        $this->model->$name = $value;
     }
 
-    /**
-     * Combined with the code in SerializesAndRestoresWrappedModelIdentifiers this allows serializing our special wrapped model
-     * With only a minimal number of classes overrides (this method is called in Laravel's collection which would be trickier to override)
-     * @return mixed
-     */
-    public function getQueueableId()
+    public function __isset(string $name): bool
     {
-        return $this->realModel->getQueueableId();
+        return isset($this->model->$name);
     }
 
-    public static function bootSearchable()
+    public function __call(string $name, array $arguments): mixed
     {
-        // Override original to remove scope (we call it on the real model),
-        // observer (we use events and we are not saving the wrapper model anyway)
-        // and collection macros (we do it in the service provider)
+        return $this->model->$name(...$arguments);
     }
 
-    public function registerSearchableMacros()
+    public static function registerSearchableMacros(): void
     {
-        throw new \Exception('Flarum implementation does not use Searchable::registerSearchableMacros');
+        BaseCollection::macro('searchable', function () {
+            /** @var BaseCollection $this */
+            $this->pipe(function (BaseCollection $models) {
+                return $models->map(function ($model) {
+                    if ($model instanceof ScoutModelWrapper) {
+                        return $model;
+                    }
+
+                    return new ScoutModelWrapper($model);
+                });
+            })->first()?->queueMakeSearchable($this);
+        });
+
+        BaseCollection::macro('unsearchable', function () {
+            /** @var BaseCollection $this */
+            $this->pipe(function (BaseCollection $models) {
+                return $models->map(function ($model) {
+                    if ($model instanceof ScoutModelWrapper) {
+                        return $model;
+                    }
+
+                    return new ScoutModelWrapper($model);
+                });
+            })->first()?->queueRemoveFromSearch($this);
+        });
     }
 
-    public function queueMakeSearchable($models)
+    public function queueMakeSearchable(BaseCollection $models): void
     {
-        throw new \Exception('Flarum implementation does not use Searchable::queueMakeSearchable');
+        if ($models->isEmpty()) {
+            return;
+        }
+
+        $wrapped = $models->map(function ($model) {
+            return $model instanceof self ? $model : new self($model);
+        });
+
+        if (self::usesQueue()) {
+            dispatch(new Job\MakeSearchable($wrapped));
+        } else {
+            (new Job\MakeSearchable($wrapped))->handle();
+        }
     }
 
-    public function queueRemoveFromSearch($models)
+    public function queueRemoveFromSearch(BaseCollection $models): void
     {
-        throw new \Exception('Flarum implementation does not use Searchable::queueRemoveFromSearch');
+        if ($models->isEmpty()) {
+            return;
+        }
+
+        $wrapped = $models->map(function ($model) {
+            return $model instanceof self ? $model : new self($model);
+        });
+
+        if (self::usesQueue()) {
+            dispatch(new Job\RemoveFromSearch($wrapped));
+        } else {
+            (new Job\RemoveFromSearch($wrapped))->handle();
+        }
+    }
+
+    protected static function usesQueue(): bool
+    {
+        /** @var SettingsRepositoryInterface $settings */
+        $settings = resolve(SettingsRepositoryInterface::class);
+
+        return (bool)$settings->get('clarkwinkelmann-scout.queue');
     }
 
     public function shouldBeSearchable(): bool
     {
-        $callbacks = resolve('scout.searchable');
+        $callbacks = Arr::get(resolve('scout.ShouldBeSearchable'), get_class($this->model), []);
 
-        foreach (array_reverse(array_merge([get_class($this->realModel)], class_parents($this->realModel))) as $class) {
-            if (Arr::exists($callbacks, $class)) {
-                foreach ($callbacks[$class] as $callback) {
-                    $returnValue = $callback($this->realModel);
-
-                    if (is_bool($returnValue)) {
-                        return $returnValue;
-                    }
-                }
+        foreach ($callbacks as $callback) {
+            if ($callback($this->model) === false) {
+                return false;
             }
         }
 
@@ -94,144 +128,99 @@ class ScoutModelWrapper extends Model
         return true;
     }
 
-    public static function search($query = '', $callback = null)
+    public function searchable(): void
     {
-        throw new \Exception('Static functions not available in Scout for Flarum');
+        $this->queueMakeSearchable(BaseCollection::make([$this]));
     }
 
-    public static function makeAllSearchable($chunk = null)
+    public function unsearchable(): void
     {
-        throw new \Exception('Static functions not available in Scout for Flarum. Use ScoutStatic::makeAllSearchable');
+        $this->queueRemoveFromSearch(BaseCollection::make([$this]));
     }
 
-    public static function removeAllFromSearch()
+    public function wasSearchableBeforeUpdate(): bool
     {
-        throw new \Exception('Static functions not available in Scout for Flarum. Use ScoutStatic::removeAllFromSearch');
+        return true;
     }
 
-    public function queryScoutModelsByIds(Builder $builder, array $ids)
+    public function wasSearchableBeforeDelete(): bool
     {
-        $query = $this->realModel->newQuery();
+        return true;
+    }
+
+    public function getScoutModelsByIds(\Laravel\Scout\Builder $builder, array $ids): BaseCollection
+    {
+        return $this->queryScoutModelsByIds($builder, $ids)->get();
+    }
+
+    public function queryScoutModelsByIds(\Laravel\Scout\Builder $builder, array $ids): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = $this->model->newQuery();
 
         if ($builder->queryCallback) {
             call_user_func($builder->queryCallback, $query);
         }
 
-        $whereIn = in_array($this->getKeyType(), ['int', 'integer']) ?
-            'whereIntegerInRaw' :
-            'whereIn';
+        $whereIn = in_array($this->model->getKeyType(), ['int', 'integer'])
+            ? 'whereIntegerInRaw'
+            : 'whereIn';
 
-        return $query->{$whereIn}(
-            $this->getScoutKeyName(), $ids
-        );
-    }
-
-    public static function enableSearchSyncing()
-    {
-        throw new \Exception('Static functions not available in Scout for Flarum');
-    }
-
-    public static function disableSearchSyncing()
-    {
-        throw new \Exception('Static functions not available in Scout for Flarum');
-    }
-
-    public static function withoutSyncingToSearch($callback)
-    {
-        throw new \Exception('Static functions not available in Scout for Flarum');
+        return $query->{$whereIn}($this->getScoutKeyName(), $ids);
     }
 
     public function searchableAs(): string
     {
-        /**
-         * @var SettingsRepositoryInterface $settings
-         */
+        /** @var SettingsRepositoryInterface $settings */
         $settings = resolve(SettingsRepositoryInterface::class);
 
-        return $settings->get('clarkwinkelmann-scout.prefix') . $this->realModel->getTable();
+        return $settings->get('clarkwinkelmann-scout.prefix', '') . $this->model->getTable();
     }
 
     public function toSearchableArray(): array
     {
-        $callbacks = resolve('scout.attributes');
-
         $attributes = [];
 
-        foreach (array_reverse(array_merge([get_class($this->realModel)], class_parents($this->realModel))) as $class) {
-            if (Arr::exists($callbacks, $class)) {
-                foreach ($callbacks[$class] as $callback) {
-                    $attributes = array_merge(
-                        $attributes,
-                        $callback($this->realModel, $attributes)
-                    );
-                }
-            }
+        $callbacks = Arr::get(resolve('scout.attributes'), get_class($this->model), []);
+
+        foreach ($callbacks as $callback) {
+            $attributes = array_merge($attributes, $callback($this->model));
         }
 
         return $attributes;
     }
 
-    public function syncWithSearchUsing()
+    public function syncWithSearchUsing(): string
     {
-        // TODO Flarum settings
-        return config('scout.queue.connection') ?: config('queue.default');
+        return config('queue.default');
     }
 
-    public function syncWithSearchUsingQueue()
+    public function syncWithSearchUsingQueue(): ?string
     {
-        // TODO Flarum settings
-        return config('scout.queue.queue');
+        return null;
     }
 
-    public function pushSoftDeleteMetadata()
+    public function pushSoftDeleteMetadata(): static
     {
-        throw new \Exception('Native Laravel soft delete meta not implemented in Scout for Flarum');
+        return $this;
     }
 
-    public function getScoutKey()
+    public function scoutMetadata(): array
     {
-        return $this->realModel->getKey();
+        return [];
     }
 
-    public function getScoutKeyName()
+    public function getScoutKey(): mixed
     {
-        return $this->realModel->getQualifiedKeyName();
+        return $this->model->getKey();
     }
 
-    protected static function usesSoftDelete()
+    public function getScoutKeyName(): string
     {
-        throw new \Exception('Native Laravel soft delete meta not implemented in Scout for Flarum');
+        return $this->model->getQualifiedKeyName();
     }
 
-    /**
-     * Replaces the ModelObserver's callback, to be called by event listeners in Flarum instead
-     */
-    public function scoutObserverSaved()
+    public function searchableUsing(): \Laravel\Scout\Engines\Engine
     {
-        if (!$this->searchIndexShouldBeUpdated()) {
-            return;
-        }
-
-        if (!$this->shouldBeSearchable()) {
-            if ($this->wasSearchableBeforeUpdate()) {
-                $this->unsearchable();
-            }
-
-            return;
-        }
-
-        $this->searchable();
-    }
-
-    /**
-     * Replaces the ModelObserver's callback, to be called by event listeners in Flarum instead
-     */
-    public function scoutObserverDeleted()
-    {
-        if (!$this->wasSearchableBeforeDelete()) {
-            return;
-        }
-
-        $this->unsearchable();
+        return resolve(EngineManager::class)->engine();
     }
 }

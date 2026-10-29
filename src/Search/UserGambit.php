@@ -9,20 +9,23 @@ use Flarum\User\User;
 
 class UserGambit implements GambitInterface
 {
-    public function apply(SearchState $search, $bit)
+    public function apply(SearchState $search, $bit): bool
     {
-        $builder = ScoutStatic::makeBuilder(User::class, $bit);
+        $builder = ScoutStatic::makeBuilder(User::class, (string)$bit);
 
         $ids = $builder->keys();
 
-        $search->getQuery()->whereIn('id', $ids);
+        $query = $search->getQuery();
+        $prefix = $query->getConnection()->getTablePrefix();
 
-        $search->setDefaultSort(function ($query) use ($ids) {
-            if (!count($ids)) {
-                return;
-            }
+        $query->whereIn('users.id', $ids);
 
-            $query->orderByRaw('FIELD(id' . str_repeat(', ?', count($ids)) . ')', $ids);
-        });
+        if ($ids->isNotEmpty()) {
+            $placeholders = implode(',', array_fill(0, $ids->count(), '?'));
+            $query->getQuery()->orders = null;
+            $query->orderByRaw("FIELD({$prefix}users.id, {$placeholders})", $ids->all());
+        }
+
+        return true;
     }
 }

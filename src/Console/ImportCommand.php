@@ -2,16 +2,20 @@
 
 namespace ClarkWinkelmann\Scout\Console;
 
+use ClarkWinkelmann\Scout\ScoutStatic;
 use Illuminate\Contracts\Events\Dispatcher;
+use Laravel\Scout\Console\ImportCommand as BaseImportCommand;
 
-class ImportCommand extends \Laravel\Scout\Console\ImportCommand
+class ImportCommand extends BaseImportCommand
 {
     use ModifiedImportTrait;
 
-    public function handle(Dispatcher $events)
+    public function handle(Dispatcher $events): int
     {
-        $class = $this->argument('model');
+        $class = ScoutStatic::ValidateModelClass((string)$this->argument('model'));
 
-        $this->handleClass($events, $class);
+        $this->importModel($class, $events);
+
+        return self::SUCCESS;
     }
 }

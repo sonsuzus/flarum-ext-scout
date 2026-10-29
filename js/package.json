@@ -1,14 +1,16 @@
 {
-    "name": "@clarkwinkelmann/scout",
-    "private": true,
-    "dependencies": {
-        "flarum-tsconfig": "^1.0",
-        "flarum-webpack-config": "^2.0",
-        "webpack": "^5.65",
-        "webpack-cli": "^4.9"
-    },
-    "scripts": {
-        "dev": "webpack --mode development --watch",
-        "build": "webpack --mode production"
-    }
+  "private": true,
+  "name": "@clarkwinkelmann/flarum-ext-scout",
+  "scripts": {
+    "dev": "webpack --mode development --watch",
+    "build": "webpack --mode production",
+    "analyze": "webpack-bundle-analyzer"
+  },
+  "devDependencies": {
+    "flarum-tsconfig": "^2.0.0",
+    "flarum-webpack-config": "^3.0.0",
+    "typescript": "^5.4.0",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
+  }
 }

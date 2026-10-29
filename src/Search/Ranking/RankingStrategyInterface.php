@@ -6,5 +6,5 @@ use Flarum\Search\SearchState;
 
 interface RankingStrategyInterface
 {
-    public function apply(SearchState $search, string $bit): void;
+    public function rank(SearchState $search, string $bit): void;
 }

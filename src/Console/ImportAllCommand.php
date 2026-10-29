@@ -2,9 +2,7 @@
 
 namespace ClarkWinkelmann\Scout\Console;
 
-use Flarum\Post\Post;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 
 class ImportAllCommand extends Command
@@ -12,21 +10,18 @@ class ImportAllCommand extends Command
     use ModifiedImportTrait;
 
     protected $signature = 'scout:import-all
-            {--c|chunk= : The number of records to import at a time}';
+            {--c|chunk= : The number of records to import at a time (Defaults to configuration value: `scout.chunk.searchable`)}';
 
     protected $description = 'Import all Flarum models into the search index';
 
-    public function handle(Dispatcher $events, Container $container)
+    public function handle(Dispatcher $events): int
     {
-        $classes = array_keys($container->make('scout.attributes'));
+        $models = array_keys(resolve('scout.attributes'));
 
-        foreach ($classes as $class) {
-            // There's no need to index all subclasses of Post separately because they are already handled by Post
-            if (in_array(Post::class, class_parents($class))) {
-                continue;
-            }
-
-            $this->handleClass($events, $class);
+        foreach ($models as $class) {
+            $this->importModel($class, $events);
         }
+
+        return self::SUCCESS;
     }
 }
