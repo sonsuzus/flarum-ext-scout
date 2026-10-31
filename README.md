@@ -1,289 +1,148 @@
-# Scout Search for Flarum
+# Scout Search for Flarum 2.0
 
-[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/dshovchko/flarum-ext-scout/blob/main/LICENSE.txt) [![Latest Stable Version](https://img.shields.io/packagist/v/dshovchko/flarum-ext-scout.svg)](https://packagist.org/packages/dshovchko/flarum-ext-scout) [![Total Downloads](https://img.shields.io/packagist/dt/dshovchko/flarum-ext-scout.svg)](https://packagist.org/packages/dshovchko/flarum-ext-scout)
+[](https://opensource.org/licenses/MIT)
+[](https://flarum.org)
+[](https://www.php.net)
 
-Integrates [Laravel Scout](https://laravel.com/docs/9.x/scout) with [Flarum](https://flarum.org/) discussion and user search.
+Integrates [Laravel Scout](https://laravel.com/framework/docs/scout) (`^10.0|^11.0`) with [Flarum 2.0](https://docs.flarum.org/extend/search/) discussion and user search.
 
-This is a fork of the original Scout Search extension. It adds a configurable **discussion ranking strategy** so you can choose how title and post matches are prioritized.
-We introduced this because the original merge of discussion and post indices can sometimes surface post content matches above exact title matches, which is not ideal for some communities.
+Just like in Laravel, model changes are automatically synced with the configured search index whenever discussions, posts, or users are created, updated, or deleted in Flarum. You only need to manually import existing records when first enabling the extension or switching drivers.
 
-Just like with Laravel, the data is automatically synced with the search index every time a model is updated in Flarum.
-You only need to manually import data when you enable the extension (see commands below).
+The external search engine is queried server-side inside Flarum's `DatabaseSearchDriver` full-text filter to constrain and rank the SQL query results, preserving full compatibility with Flarum 2.0's `SearchModal`, native filters (`author:`, `tag:`, `is:unread`, etc.), and visibility scopes.
 
-The external search driver is used server-side to filter down the MySQL results, so it should still be compatible with every other extension and search gambits.
+## Key Features & Flarum 2.0 Enhancements
 
-[Algolia](https://www.algolia.com/) and [Meilisearch](https://www.meilisearch.com/) drivers are included in the extension.
-[TNTSearch](https://github.com/teamtnt/tntsearch) is supported but requires the manual installation of an additional package.
-The Scout database and collection drivers cannot be used (they would be worst than Flarum's built-in database search).
+* **Flarum 2.0 & Laravel 13 Ready:** Built for PHP `^8.3`, `flarum/core: ^2.0`, and `laravel/scout: ^10.0|^11.0` using the new `Extend\SearchDriver` (`AbstractFulltextFilter`) and `Extend.Admin` architectures.
+* **Multiple Search Engines:** Built-in support for **Meilisearch** (`meilisearch/meilisearch-php: ^1.0`), **Algolia** (`algolia/algoliasearch-client-php: ^3.2|^4.0`), and optional support for **TNTSearch** (`teamtnt/laravel-scout-tntsearch-driver: ^14.0|^15.0|^16.0`).
+* **Configurable Discussion Ranking Strategies:** Choose how discussion title matches and post content matches are prioritized and merged:
+  * **Original Scout merge (`default`):** Prioritizes discussions with the highest-ranked matching comment posts.
+  * **Title-first (`title_first`):** Prioritizes exact title matches $\rightarrow$ phrase title matches $\rightarrow$ title word matches $\rightarrow$ exact post matches $\rightarrow$ post word matches.
+  * **Exact-first (`exact_title_post`):** Prioritizes exact/phrase title matches $\rightarrow$ exact post phrase matches $\rightarrow$ title word matches $\rightarrow$ post word matches.
+  * **Title only (`title_only`):** Searches and ranks strictly by discussion titles (exact title $\rightarrow$ phrase title $\rightarrow$ title words).
+  * **Posts only (`posts_only`):** Searches and ranks strictly by comment post content (exact phrase posts $\rightarrow$ post words).
+* **Queue Support:** Optionally dispatch indexing and removal jobs (`MakeSearchable` / `RemoveFromSearch`) to Flarum's background queue.
+* **Search Highlighting Integration:** Compatible with `clarkwinkelmann/flarum-ext-advanced-search-highlight` when using Meilisearch.
 
-See below for the specific requirements and configuration of each driver.
+## Requirements
 
-While only discussions and users are searchable in Flarum, this implementation also uses a `posts` search index which is merged with discussion search results in a similar way to the Flarum native search.
-The discussion result sort currently prioritize best post matching because I have not found a way to merge the match score of discussions and posts indices.
-
-All CLI commands from Scout are available, with an additional special "import all" command:
-
-```
-php flarum scout:import-all           Import all Flarum models into the search index
-                                      (a shortcut to scout:import with every searchable class known to Flarum)
-php flarum scout:flush {model}        Flush all of the model's records from the index
-php flarum scout:import {model}       Import the given model into the search index
-php flarum scout:index {name}         Create an index (generally not needed)
-php flarum scout:delete-index {name}  Delete an index (generally not needed)
-```
-
-### Algolia
-
-The Algolia driver requires an account on the eponymous cloud service.
-
-### Meilisearch
-
-The Meilisearch driver requires a running Meilisearch server instance.
-The server can be hosted anywhere as long as it can be reached over the network.
-By default, the extension attempts to connect to a server at `127.0.0.1:7700`.
-
-If you are not running the latest Meilisearch version you might need to explicitly install an older version of the SDK.
-Likewise, if you are regularly running `composer update` on all your dependencies, you should also add an explicit requirement for the Meilisearch SDK in your `composer.json` because the extension requires `*` which might jump to a newer Meilisearch SDK version as soon as it comes out.
-
-To install and lock the current latest version:
-
-    composer require meilisearch/meilisearch-php
-
-Unfortunately Meilisearch doesn't seem to advertise which specific version of the Composer package is compatible with each server version.
-You can find the list of releases at https://packagist.org/packages/meilisearch/meilisearch-php
-
-Once you know which version you need, you can lock it, for example to install the older 0.23:
-
-    composer require meilisearch/meilisearch-php:"0.23.*"
-
-The only settings for Meilisearch are **Host** and **Key**.
-Everything else is configured in the Meilisearch server itself.
-
-Even if you don't configure the **Default Results Limit** value and use Meilisearch, the extension will automatically set it to 200 for you because the default for Meilisearch (20) is extremely low and result in only 2 pages of results at best.
-
-### TNTSearch
-
-The TNTSearch library requires the sqlite PHP extension, therefore it's not included by default with Scout.
-
-To install it, make sure you have the sqlite PHP extension enabled for both command line and webserver and run:
-
-    composer require teamtnt/laravel-scout-tntsearch-driver
-
-TNTSearch uses local sqlite databases for each index.
-The databases are stored in `<flarum>/storage/tntsearch` which must be writable.
-
-The following settings are exposed.
-What each setting does isn't entirely clear, TNTSearch own documentation doesn't offer much guidance.
-
-- **Max Docs**: this likely impacts how many results Flarum will be able to show for a query
-- **Fuziness** (on/off): seems to be the typos/variation matching
-- **Fuzziness Levenshtein Distance**
-- **Fuzziness Prefix Length**: no idea what it does
-- **Fuzziness Max Expansions** no idea what it does
-
-**As You Type** and **Search Boolean** are hard-coded to enabled, though they don't seem to work as described in TNTSearch documentation.
+* **PHP:** `^8.3`
+* **Flarum Core:** `^2.0`
+* **Search Engine:** Algolia account, Meilisearch server (`v1.0+`), or SQLite PDO extension (for TNTSearch).
 
 ## Installation
 
-> This extension is still experimental. Please test on a staging server first.
-> I have not tested Algolia personally yet, but from feedback it seems to be working.
+Install the extension via Composer:
 
-    composer require dshovchko/flarum-ext-scout
+```bash
+composer require dshovchko/flarum-ext-scout -W
+```
 
-## Supported extensions and fields
+If you are installing from a custom VCS fork for Flarum 2.0:
 
-This list is not exhaustive.
-If you added support for Scout in your extension, let me know so I can update this list.
+```bash
+composer config repositories.scout vcs https://github.com/YOUR_USERNAME/flarum-ext-scout
+composer require dshovchko/flarum-ext-scout:dev-main -W
+```
 
-### Discussions
+After installation, clear the cache and publish assets if needed:
 
-When searching for discussions via Flarum's search feature, the fields for **Posts** are also queried.
+```bash
+php flarum cache:clear
+```
 
-- **Title**: support built into Scout.
-- **Formulaire Discussion Fields**: supported since Formulaire 1.8 (guest-accessible forms only).
+## Driver Configuration
 
-### Posts
+Enable **Scout Search** in the Flarum Admin Dashboard and select your preferred driver:
 
-- **Content**: support built into Scout, the value used is a plain text version of the output HTML without any tag. Some information like link URLs, image URLs and image alts are therefore not indexed. This might be changed in a future version.
+### 1. Meilisearch
 
-### Users
+1. Install and run a [Meilisearch](https://www.meilisearch.com) instance (v1.0 or newer).
+2. In the extension settings, set **Driver** to **Meilisearch**.
+3. Configure **Meilisearch Host** (default: `127.0.0.1:7700`) and **Meilisearch Key** (your master or admin API key).
 
-- **Display Name**: support built into Scout.
-- **Username**: support built into Scout.
-- **FoF Bio**: support built into Scout (not in FoF Bio itself).
-- **Formulaire Profile Fields**: supported since Formulaire 1.8 (guest-accessible forms only).
+### 2. Algolia
 
-Email is intentionally not searchable because there's currently no mechanism that would prevent regular users from using that feature to leak email.
+1. Create an [Algolia](https://www.algolia.com) account and application.
+2. In the extension settings, set **Driver** to **Algolia**.
+3. Enter your **Algolia ID** and **Algolia Secret** (Admin API Key with read and write permissions).
+4. Optionally configure connect, read, and write timeouts.
 
-### Formulaire
+### 3. TNTSearch (Optional)
 
-Forms and Submissions are optionally indexed via Scout. See [Formulaire documentation](https://kilowhat.net/flarum/extensions/formulaire#scout-integration) for details.
+TNTSearch stores its search index in local SQLite files inside Flarum's `storage/tntsearch/` directory. Because the package is not installed by default, require it first:
 
-## Discussion ranking strategies (fork)
+```bash
+composer require teamtnt/laravel-scout-tntsearch-driver:"^16.0" -W
+```
 
-You can select a strategy in the extension settings. Available options:
+Then select **TNTSearch** as the driver in the Flarum Admin settings. You can optionally tune max documents, fuzziness (typo tolerance), Levenshtein distance, prefix length, and max expansions.
 
-- **Original Scout merge (post matches first)**: default behavior from the upstream extension.
-- **Title-first (exact title > title words > exact posts > post words)**
-- **Exact-first (exact title > exact posts > title words > post words)**
-- **Title only (exact title > title words)**
-- **Posts only (exact posts > post words)**
+## CLI Commands (Indexing & Flushing)
 
-## Developers
+When you first configure Scout—or whenever you want to rebuild your search indices—run the import command from your Flarum root directory:
 
-### Extend the search index of existing models
+* **Import all searchable Flarum models (`Discussion`, `Post`, `User`):**
+  ```bash
+  php flarum scout:import-all
+  ```
+* **Import all models in smaller batches (custom chunk size):**
+  ```bash
+  php flarum scout:import-all --chunk=250
+  ```
+* **Import a single model class:**
+  ```bash
+  php flarum scout:import "Flarum\Discussion\Discussion"
+  php flarum scout:import "Flarum\Post\Post"
+  php flarum scout:import "Flarum\User\User"
+  ```
+* **Flush (clear) a model's index:**
+  ```bash
+  php flarum scout:flush "Flarum\Discussion\Discussion"
+  php flarum scout:flush "Flarum\Post\Post"
+  php flarum scout:flush "Flarum\User\User"
+  ```
 
-Use the extender to register your attributes, similar to extending Flarum's serializers.
+## Extending (For Extension Developers)
 
-Additionally, you should register an event listener that's triggered when your attribute value changes.
+Other Flarum extensions can use the `ClarkWinkelmann\Scout\Extend\Scout` extender in their `extend.php` to customize indexed attributes, filter which records should be indexed, or trigger index updates on custom domain events:
 
 ```php
-<?php
-
 use ClarkWinkelmann\Scout\Extend\Scout;
-use Acme\Event\SubtitleRenamed;
+use Flarum\Discussion\Discussion;
+use Acme\Extension\Event\CustomDiscussionEvent;
 
 return [
     (new Scout(Discussion::class))
-        ->listenSaved(SubtitleRenamed::class, function (SubtitleRenamed $event) {
-            return $event->discussion;
-        })
-        ->attributes(function (Discussion $discussion): array {
+        ->attributes(function (Discussion $discussion, array $attributes): array {
             return [
-                'subtitle' => $discussion->subtitle,
+                'customField' => $discussion->custom_field,
             ];
+        })
+        ->searchable(function (Discussion $discussion): ?bool {
+            if ($discussion->is_secret) {
+                return false;
+            }
+
+            return null; // Pass to next callback or default (true)
+        })
+        ->listenSaved(CustomDiscussionEvent::class, function (CustomDiscussionEvent $event) {
+            return $event->discussion;
         }),
 ];
 ```
 
-If registering an event listener is not an option, you can also call the update code manually after you change the value:
+## Frontend Development
 
-```php
-<?php
+To recompile the Admin frontend assets for Flarum 2.0:
 
-use ClarkWinkelmann\Scout\ScoutModelWrapper;
-use Flarum\Discussion\Discussion;
-
-/**
- * @var Discussion $discussion
- */
-$discussion->subtitle = 'New value';
-$discussion->save();
-
-(new ScoutModelWrapper($discussion))->scoutObserverSaved();
+```bash
+cd js
+npm install
+npm run build
 ```
-
-If you are modifying a Flarum model outside the original store/edit/delete handlers, don't forget to trigger Flarum events (like `Started` and `Deleted` for discussions) so that Scout can sync your changes.
-
-### Add your own search engine
-
-Any search engine extending `Laravel\Scout\Engines\Engine` that works with Laravel Scout should be compatible with this Flarum implementation.
-
-There's currently no extender to connect a new engine from an external package.
-You will likely need to override the `EngineManager` by forking this extension or by using a container binding.
-
-### Make your own models searchable
-
-Due to the constraints of making Scout optional and extendable, the Scout API for model configuration and retrieval contains a number of changes compared to Laravel.
-Where possible, similar names have been kept for the concepts, even if they now happen through extenders or new global methods.
-
-Because there's no way to add the `Searchable` trait to Flarum (or extensions) Eloquent models without making Scout a requirement, the trait is not used.
-Do not add the `Searchable` trait to your Eloquent models, even if you have the ability to edit the model source code!
-
-This documentation mentions 2 kind of models, "real" models are the Eloquent models from Flarum or extensions that don't have the `Searchable` trait, like `Flarum\User\User`.
-"wrapped" models is a special feature of this extension where a "real" model is wrapped into a special model that gives it the `Searchable` abilities.
-Generally, "wrapped" models will be transparently used under the hood by this extension without any special action required by the programmers.
-If you wish to manually obtain a "wrapped" model to call specific Scout methods on it, you can wrap it with `new ScoutModelWrapper($model)`.
-
-The built-in Scout model observer is not used, instead Flarum events are used to trigger index updates.
-
-Summary of the differences with Laravel:
-
-The Support/Eloquent collection methods work with arrays of either real or wrapped models:
-
-- `Illuminate\Support\Collection::searchable()`: works identically.
-- `Illuminate\Support\Collection::unsearchable()`: works identically.
-
-The query builder methods/scopes work on real models:
-
-- `Eloquent\Builder::searchable()`: works identically
-- `Eloquent\Builder::unsearchable()`: works identically
-
-The scout methods aren't available on real models but all the useful methods have alternative means to be called:
-
-- `Model::shouldBeSearchable()`: Use Extender to modify.
-- `Model::searchIndexShouldBeUpdated()`: Not customizable. Could be added to Extender later.
-- `Model::search()`: Not available. Use Builder directly.
-- `Model::makeAllSearchable()`: Use `ScoutStatic::makeAllSearchable()` instead.
-- `Model::makeAllSearchableUsing()`: Not customizable. Could be added to Extender later.
-- `Model::searchable()`: Not available. Manually wrap in collection or `ScoutModelWrapper` to call.
-- `Model::removeAllFromSearch()`: Use `ScoutStatic::removeAllFromSearch()` instead.
-- `Model::unsearchable()`: Not available. Manually wrap in collection or `ScoutModelWrapper` to call.
-- `Model::wasSearchableBeforeUpdate()`: Not customizable. Could be added to Extender later.
-- `Model::wasSearchableBeforeDelete()`: Not customizable. Could be added to Extender later.
-- `Model::getScoutModelsByIds()`: Should be usable via wrapper, but I recommend not using it.
-- `Model::queryScoutModelsByIds()`: Should be usable via wrapper, but I recommend not using it.
-- `Model::enableSearchSyncing()`: Not available.
-- `Model::disableSearchSyncing()`: Not available.
-- `Model::withoutSyncingToSearch()`: Not available.
-- `Model::searchableAs()`: Not customizable. Prefix can be changed in extension settings.
-- `Model::toSearchableArray()`: Use Extender to modify.
-- `Model::syncWithSearchUsing()`: Not customizable. Could be added to Extender later.
-- `Model::syncWithSearchUsingQueue()`: Not customizable. Could be added to Extender later.
-- `Model::pushSoftDeleteMetadata()`: Not available.
-- `Model::scoutMetadata()`: Not customizable. Could be added to Extender later.
-- `Model::withScoutMetadata()`: Not available.
-- `Model::getScoutKey()`: Not customizable. Could be added to Extender later.
-- `Model::getScoutKeyName()`: Not customizable. Could be added to Extender later.
-- `Model::usesSoftDelete()`: Not available.
-
-The `Scout::` static object is not used:
-
-- `Laravel\Scout\Scout::$makeSearchableJob`: Not customizable.
-- `Laravel\Scout\Scout::$removeFromSearchJob`: Not customizable.
-- `Laravel\Scout\Scout::makeSearchableUsing()`: Not customizable.
-- `Laravel\Scout\Scout::removeFromSearchUsing()`: Not customizable.
-
-A new object not part of the original Scout is offered for static methods:
-
-- `ScoutStatic::makeAllSearchable(string $modelClass)`: trigger indexing or every model of the given class.
-- `ScoutStatic::removeAllFromSearch(string $modelClass)`: trigger de-indexing or every model of the given class.
-- `ScoutStatic::makeBuilder(string $modelClass, string $query, callable $callback = null)`: Obtain an instance of `Laravel\Scout\Builder` configured for a given model.
-
-To use the scout to filter results in your code, I recommend ignoring every builder/model methods and directly retrieve the matching IDs through the Scout Builder instance.
-
-You can then use that array of matching IDs to modify a Flarum searcher (see this extension source code for the post/user searchers), filterer, or a manual query.
-
-Caution: the array of IDs will contain deleted and private content as well.
-Make sure to always use Flarum's `whereVisibleTo()` somewhere in the query.
-
-To preserve the search result order, one option is to use the `FIELD()` SQL method.
-You could also re-sort the results in PHP after retrieving them from the database if you are not paginating.
-
-```php
-<?php
-
-use ClarkWinkelmann\Scout\ScoutStatic;
-use Flarum\User\User;
-
-$builder = ScoutStatic::makeBuilder(User::class, 'Hello World');
-
-$ids = $builder->keys();
-
-$users = User::newQuery()
-    ->whereVisibleTo($actor)
-    ->whereIn('id', $ids)
-    ->orderByRaw('FIELD(id' . str_repeat(', ?', count($ids)) . ')', $ids)
-    ->limit(10)
-    ->get();
-```
-
-## Support
-
-This fork is maintained by **dshovchko**. Please use GitHub issues for bug reports and feature requests.
 
 ## Links
 
-- [GitHub](https://github.com/dshovchko/flarum-ext-scout)
-- [Packagist](https://packagist.org/packages/dshovchko/flarum-ext-scout)
-- [Discuss](https://discuss.flarum.org/d/30874)
+* [Original Repository (Clark Winkelmann)](https://github.com/clarkwinkelmann/flarum-ext-scout)
+* [Maintainer Repository (Dmytro Shovchko)](https://www.google.com/search?q=https://github.com/dshovchko/flarum-ext-scout)
+* [Flarum Community Discussion](https://www.google.com/search?q=https://discuss.flarum.org/d/30874)
