@@ -3,26 +3,36 @@
 namespace ClarkWinkelmann\Scout\Search;
 
 use ClarkWinkelmann\Scout\ScoutStatic;
-use Flarum\Search\GambitInterface;
+use Flarum\Search\AbstractFulltextFilter;
+use Flarum\Search\Database\DatabaseSearchState;
 use Flarum\Search\SearchState;
 use Flarum\User\User;
 
-class UserGambit implements GambitInterface
+/**
+ * @extends AbstractFulltextFilter<DatabaseSearchState>
+ */
+class UserGambit extends AbstractFulltextFilter
 {
-    public function apply(SearchState $search, $bit)
+    public function search(SearchState $state, string $value): void
     {
-        $builder = ScoutStatic::makeBuilder(User::class, $bit);
+        $builder = ScoutStatic::makeBuilder(User::class, $value);
 
-        $ids = $builder->keys();
+        $ids = $builder->keys()->all();
 
-        $search->getQuery()->whereIn('id', $ids);
+        $state->getQuery()->whereIn('users.id', $ids);
 
-        $search->setDefaultSort(function ($query) use ($ids) {
+        $state->setDefaultSort(function ($query) use ($ids) {
             if (!count($ids)) {
                 return;
             }
 
-            $query->orderByRaw('FIELD(id' . str_repeat(', ?', count($ids)) . ')', $ids);
+            $prefix = $query->getConnection()->getTablePrefix();
+            $query->orderByRaw("FIELD({$prefix}users.id" . str_repeat(', ?', count($ids)) . ')', $ids);
         });
+    }
+
+    public function apply(SearchState $search, string $bit): void
+    {
+        $this->search($search, $bit);
     }
 }

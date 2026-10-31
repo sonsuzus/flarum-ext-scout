@@ -8,11 +8,12 @@ use Flarum\Discussion\Event as DiscussionEvent;
 use Flarum\Discussion\Search\DiscussionSearcher;
 use Flarum\Extend;
 use Flarum\Post\CommentPost;
-use Flarum\Post\Post;
 use Flarum\Post\Event as PostEvent;
+use Flarum\Post\Post;
+use Flarum\Search\Database\DatabaseSearchDriver;
+use Flarum\User\Event as UserEvent;
 use Flarum\User\Search\UserSearcher;
 use Flarum\User\User;
-use Flarum\User\Event as UserEvent;
 use FoF\UserBio\Event\BioChanged;
 use Laravel\Scout\Console as ScoutConsole;
 
@@ -25,10 +26,15 @@ return [
     (new Extend\ServiceProvider())
         ->register(ScoutServiceProvider::class),
 
-    (new Extend\SimpleFlarumSearch(DiscussionSearcher::class))
-        ->setFullTextGambit(Search\DiscussionGambit::class),
-    (new Extend\SimpleFlarumSearch(UserSearcher::class))
-        ->setFullTextGambit(Search\UserGambit::class),
+    (new Extend\Settings())
+        ->default('clarkwinkelmann-scout.driver', 'null')
+        ->default('clarkwinkelmann-scout.rankingStrategy', 'default')
+        ->default('clarkwinkelmann-scout.queue', false)
+        ->default('clarkwinkelmann-scout.tntsearchFuzziness', false),
+
+    (new Extend\SearchDriver(DatabaseSearchDriver::class))
+        ->setFulltext(DiscussionSearcher::class, Search\DiscussionGambit::class)
+        ->setFulltext(UserSearcher::class, Search\UserGambit::class),
 
     (new Extend\Console())
         ->command(Console\FlushCommand::class)
@@ -60,6 +66,7 @@ return [
                 'title' => $discussion->title,
             ];
         }),
+
     (new ScoutExtend(Post::class))
         ->listenSaved(PostEvent\Posted::class, function (PostEvent\Posted $event) {
             return $event->post;
@@ -81,12 +88,15 @@ return [
             if ($post->type !== 'comment') {
                 return false;
             }
+
+            return null;
         })
         ->attributes(function (Post $post): array {
             return [
                 'id' => $post->id,
             ];
         }),
+
     // We use a separate extender call specifically for CommentPost
     // This is both a good way to organise the code and removes the need to check for instanceof before rendering the content
     // Natively we only index comments, but an extension could make more posts searchable so this code is nicely isolated in anticipation for that
@@ -98,6 +108,7 @@ return [
                 'content' => strip_tags($post->formatContent()),
             ];
         }),
+
     (new ScoutExtend(User::class))
         ->listenSaved(UserEvent\Registered::class, function (UserEvent\Registered $event) {
             return $event->user;

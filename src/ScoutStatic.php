@@ -8,7 +8,7 @@ use Flarum\Post\Post;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Illuminate\Support\Arr;
 use Laravel\Scout\Builder;
-use Laravel\Scout\Engines\MeiliSearchEngine;
+use Laravel\Scout\Engines\MeilisearchEngine;
 
 /**
  * All the static method can't be implemented on UniversalModel since we don't know the target model
@@ -18,7 +18,7 @@ class ScoutStatic
 {
     // This is not really the attributes to highlight, rather it's the attributes highlights will be extracted for
     // The actual list of attributes to highlight is configured in the advanced-search-highlight extension
-    public static $attributesToHighlight = [
+    public static array $attributesToHighlight = [
         Discussion::class => [
             'title',
         ],
@@ -36,9 +36,9 @@ class ScoutStatic
     /**
      * Replacement for Searchable::makeAllSearchable
      * @param string $class
-     * @param null $chunk
+     * @param int|null $chunk
      */
-    public static function makeAllSearchable(string $class, $chunk = null)
+    public static function makeAllSearchable(string $class, $chunk = null): void
     {
         $self = new ScoutModelWrapper(new $class);
 
@@ -48,7 +48,7 @@ class ScoutStatic
                 // Since we know we are not using it, we will comment it out for now
                 //$self->makeAllSearchableUsing($query);
             })
-            ->orderBy($self->getKeyName())
+            ->orderBy($self->getRealModel()->getKeyName())
             ->searchable($chunk);
     }
 
@@ -56,7 +56,7 @@ class ScoutStatic
      * Replacement for Searchable::removeAllFromSearch
      * @param string $class
      */
-    public static function removeAllFromSearch(string $class)
+    public static function removeAllFromSearch(string $class): void
     {
         $self = new ScoutModelWrapper(new $class);
 
@@ -67,25 +67,25 @@ class ScoutStatic
      * Shortcut to obtain a Builder instance with the wrapper already set
      * @param string $class
      * @param string $query
-     * @param callable? $callback
+     * @param callable|null $callback
      * @return Builder
      */
-    public static function makeBuilder(string $class, string $query, $callback = null): Builder
+    public static function makeBuilder(string $class, string $query, ?callable $callback = null): Builder
     {
         $wrapped = new ScoutModelWrapper(new $class);
 
-        $isMeilisearch = $wrapped->searchableUsing() instanceof MeiliSearchEngine;
+        $isMeilisearch = $wrapped->searchableUsing() instanceof MeilisearchEngine;
 
         if ($isMeilisearch && is_null($callback) && class_exists(Highlighter::class)) {
             $callback = function ($meilisearch, $query, $searchParams) use ($class) {
                 $attributes = Arr::get(self::$attributesToHighlight, $class) ?? [];
 
                 $results = $meilisearch->rawSearch($query, $searchParams + [
-                        'attributesToHighlight' => $attributes,
-                        'showMatchesPosition' => true,
-                    ]);
+                    'attributesToHighlight' => $attributes,
+                    'showMatchesPosition' => true,
+                ]);
 
-                foreach ($results['hits'] as $hit) {
+                foreach ($results['hits'] ?? [] as $hit) {
                     foreach ($attributes as $attribute) {
                         $positions = Arr::get($hit, '_matchesPosition.' . $attribute);
 
@@ -126,12 +126,10 @@ class ScoutStatic
         // Developers can still customize it after getting the instance
         if ($limit > 0) {
             $builder->take($limit);
-        } else if ($isMeilisearch) {
+        } elseif ($isMeilisearch) {
             // Meilisearch default limit of 20 is extremely low
             // If you have a large number of models that aren't visible to guests
             // you might end up with not a single result after the visibility scope is applied
-            // This value is only applied if the user didn't customize the setting above
-            // This value was not chosen for any particular reason. I expect it to change in the future based on feedback
             $builder->take(200);
         }
 

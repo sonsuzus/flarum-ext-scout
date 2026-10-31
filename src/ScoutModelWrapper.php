@@ -14,7 +14,7 @@ class ScoutModelWrapper extends Model
 
     protected $table = 'scout_should_not_be_used';
 
-    protected $realModel;
+    protected Model $realModel;
 
     public function __construct(Model $realModel)
     {
@@ -117,12 +117,13 @@ class ScoutModelWrapper extends Model
             call_user_func($builder->queryCallback, $query);
         }
 
-        $whereIn = in_array($this->getKeyType(), ['int', 'integer']) ?
+        $whereIn = in_array($this->realModel->getKeyType(), ['int', 'integer']) ?
             'whereIntegerInRaw' :
             'whereIn';
 
         return $query->{$whereIn}(
-            $this->getScoutKeyName(), $ids
+            $this->realModel->qualifyColumn($this->getScoutKeyName()),
+            $ids
         );
     }
 
@@ -173,13 +174,11 @@ class ScoutModelWrapper extends Model
 
     public function syncWithSearchUsing()
     {
-        // TODO Flarum settings
         return config('scout.queue.connection') ?: config('queue.default');
     }
 
     public function syncWithSearchUsingQueue()
     {
-        // TODO Flarum settings
         return config('scout.queue.queue');
     }
 
@@ -193,9 +192,12 @@ class ScoutModelWrapper extends Model
         return $this->realModel->getKey();
     }
 
+    /**
+     * In Laravel Scout 10+/11+, getScoutKeyName() must return the unqualified key name.
+     */
     public function getScoutKeyName()
     {
-        return $this->realModel->getQualifiedKeyName();
+        return $this->realModel->getKeyName();
     }
 
     protected static function usesSoftDelete()

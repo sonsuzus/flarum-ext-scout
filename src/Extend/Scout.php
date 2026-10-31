@@ -13,15 +13,15 @@ use Illuminate\Contracts\Events\Dispatcher;
 
 class Scout implements ExtenderInterface
 {
-    protected $modelClass;
-    protected $attributes = [];
-    protected $searchable = [];
-    protected $listenSaved = [];
-    protected $listenDeleted = [];
+    protected string $modelClass;
+    protected array $attributes = [];
+    protected array $searchable = [];
+    protected array $listenSaved = [];
+    protected array $listenDeleted = [];
 
     /**
      * @param string $modelClass The ::class attribute of the Eloquent model you are modifying.
-     *                                This model should extend from \Flarum\Database\AbstractModel.
+     *                           This model should extend from \Flarum\Database\AbstractModel.
      */
     public function __construct(string $modelClass)
     {
@@ -32,15 +32,6 @@ class Scout implements ExtenderInterface
      * Add to or modify the searchable attributes array of this model.
      *
      * @param callable|string $callback
-     *
-     * The callback can be a closure or an invokable class, and should accept:
-     * - $model: An instance of the model being serialized.
-     * - $attributes: An array of existing attributes.
-     *
-     * The callable should return:
-     * - An array of additional attributes to merge with the existing array.
-     *   Or a modified $attributes array.
-     *
      * @return self
      */
     public function attributes($callback): self
@@ -54,13 +45,6 @@ class Scout implements ExtenderInterface
      * Modify whether a given model should be searchable.
      *
      * @param callable|string $callback
-     *
-     * The callback can be a closure or an invokable class, and should accept:
-     * - $model: An instance of the model being serialized.
-     *
-     * The callable should return:
-     * - true, false or null. Null will pass to the next condition or default
-     *
      * @return self
      */
     public function searchable($callback): self
@@ -75,13 +59,6 @@ class Scout implements ExtenderInterface
      *
      * @param string $eventClass The class to listen for on the event dispatcher
      * @param callable|string $callback
-     *
-     * The callback can be a closure or an invokable class, and should accept:
-     * - $event: An instance of the event as specified in the $eventClass parameter.
-     *
-     * The callable should return:
-     * - An instance of the Eloquent Model as specified in this Extender $modelClass
-     *
      * @return self
      */
     public function listenSaved(string $eventClass, $callback): self
@@ -99,13 +76,6 @@ class Scout implements ExtenderInterface
      *
      * @param string $eventClass The class to listen for on the event dispatcher
      * @param callable|string $callback
-     *
-     * The callback can be a closure or an invokable class, and should accept:
-     * - $event: An instance of the event as specified in the $eventClass parameter.
-     *
-     * The callable should return:
-     * - An instance of the Eloquent Model as specified in this Extender $modelClass
-     *
      * @return self
      */
     public function listenDeleted(string $eventClass, $callback): self
@@ -118,14 +88,14 @@ class Scout implements ExtenderInterface
         return $this;
     }
 
-    public function extend(Container $container, Extension $extension = null)
+    public function extend(Container $container, ?Extension $extension = null): void
     {
         if (!class_exists($this->modelClass)) {
             return;
         }
 
         /**
-         * @var $manager ExtensionManager
+         * @var ExtensionManager $manager
          */
         $manager = $container->make(ExtensionManager::class);
 
@@ -143,10 +113,8 @@ class Scout implements ExtenderInterface
         if (count($this->attributes)) {
             $container->extend('scout.attributes', function (array $attributes) use ($container) {
                 foreach ($this->attributes as $callback) {
-                    $callback = ContainerUtil::wrapCallback($callback, $container);
+                    $attributes[$this->modelClass][] = ContainerUtil::wrapCallback($callback, $container);
                 }
-
-                $attributes[$this->modelClass][] = $callback;
 
                 return $attributes;
             });
@@ -155,10 +123,8 @@ class Scout implements ExtenderInterface
         if (count($this->searchable)) {
             $container->extend('scout.searchable', function (array $searchable) use ($container) {
                 foreach ($this->searchable as $callback) {
-                    $callback = ContainerUtil::wrapCallback($callback, $container);
+                    $searchable[$this->modelClass][] = ContainerUtil::wrapCallback($callback, $container);
                 }
-
-                $searchable[$this->modelClass][] = $callback;
 
                 return $searchable;
             });

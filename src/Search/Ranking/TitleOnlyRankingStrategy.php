@@ -4,10 +4,16 @@ namespace ClarkWinkelmann\Scout\Search\Ranking;
 
 use ClarkWinkelmann\Scout\ScoutStatic;
 use Flarum\Discussion\Discussion;
+use Flarum\Search\Database\DatabaseSearchState;
 use Flarum\Search\SearchState;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 
 class TitleOnlyRankingStrategy implements RankingStrategyInterface
 {
+    /**
+     * @param DatabaseSearchState $search
+     */
     public function apply(SearchState $search, string $bit): void
     {
         $exactBit = '"' . str_replace('"', '\\"', $bit) . '"';
@@ -29,12 +35,14 @@ class TitleOnlyRankingStrategy implements RankingStrategyInterface
         $discussionExactIdsSql = count($discussionExactIds) > 0 ? implode(', ', array_fill(0, count($discussionExactIds), '?')) : '0';
         $discussionIdsSql = count($discussionIds) > 0 ? implode(', ', array_fill(0, count($discussionIds), '?')) : '0';
 
+        // In Flarum 2.0, DatabaseSearchState::getQuery() returns an Eloquent\Builder instance
         $query = $search->getQuery();
-        $grammar = $query->getGrammar();
+        $baseQuery = $query instanceof EloquentBuilder ? $query->getQuery() : $query;
+        $grammar = $baseQuery->getGrammar();
 
         $query
-            ->where(function (\Illuminate\Database\Query\Builder $query) use ($discussionAllIds) {
-                $query->whereIn('id', $discussionAllIds);
+            ->where(function (EloquentBuilder|QueryBuilder $query) use ($discussionAllIds) {
+                $query->whereIn('discussions.id', $discussionAllIds);
             })
             ->selectRaw($grammar->wrapTable('discussions') . '.first_post_id as most_relevant_post_id')
             ->groupBy('discussions.id');

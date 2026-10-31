@@ -19,9 +19,9 @@ class RemoveFromSearch extends \Laravel\Scout\Jobs\RemoveFromSearch
             collect($value->id)->map(function ($id) use ($value) {
                 $model = new ScoutModelWrapper(new $value->class);
 
-                $keyName = $this->getUnqualifiedScoutKeyName(
-                    $model->getScoutKeyName()
-                );
+                // In Laravel Scout 10+/11+, getScoutKeyName() already returns the unqualified key name
+                // and getUnqualifiedScoutKeyName() has been removed.
+                $keyName = $model->getScoutKeyName();
 
                 $model->getRealModel()->forceFill([$keyName => $id]);
 

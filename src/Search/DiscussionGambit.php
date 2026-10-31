@@ -2,17 +2,21 @@
 
 namespace ClarkWinkelmann\Scout\Search;
 
-use Flarum\Search\GambitInterface;
-use Flarum\Search\SearchState;
-use Flarum\Settings\SettingsRepositoryInterface;
 use ClarkWinkelmann\Scout\Search\Ranking\DefaultRankingStrategy;
 use ClarkWinkelmann\Scout\Search\Ranking\ExactTitlePostRankingStrategy;
 use ClarkWinkelmann\Scout\Search\Ranking\PostsOnlyRankingStrategy;
 use ClarkWinkelmann\Scout\Search\Ranking\RankingStrategyInterface;
 use ClarkWinkelmann\Scout\Search\Ranking\TitleFirstRankingStrategy;
 use ClarkWinkelmann\Scout\Search\Ranking\TitleOnlyRankingStrategy;
+use Flarum\Search\AbstractFulltextFilter;
+use Flarum\Search\Database\DatabaseSearchState;
+use Flarum\Search\SearchState;
+use Flarum\Settings\SettingsRepositoryInterface;
 
-class DiscussionGambit implements GambitInterface
+/**
+ * @extends AbstractFulltextFilter<DatabaseSearchState>
+ */
+class DiscussionGambit extends AbstractFulltextFilter
 {
     protected SettingsRepositoryInterface $settings;
 
@@ -26,12 +30,17 @@ class DiscussionGambit implements GambitInterface
         $this->settings = $settings;
     }
 
-    public function apply(SearchState $search, $bit)
+    public function search(SearchState $state, string $value): void
     {
         $strategyKey = $this->settings->get('clarkwinkelmann-scout.rankingStrategy') ?: 'default';
 
         $strategy = $this->resolveStrategy($strategyKey);
-        $strategy->apply($search, $bit);
+        $strategy->apply($state, $value);
+    }
+
+    public function apply(SearchState $search, string $bit): void
+    {
+        $this->search($search, $bit);
     }
 
     protected function resolveStrategy(string $strategyKey): RankingStrategyInterface
@@ -40,24 +49,13 @@ class DiscussionGambit implements GambitInterface
             return $this->strategies[$strategyKey];
         }
 
-        switch ($strategyKey) {
-            case 'title_first':
-                $strategy = new TitleFirstRankingStrategy();
-                break;
-            case 'exact_title_post':
-                $strategy = new ExactTitlePostRankingStrategy();
-                break;
-            case 'title_only':
-                $strategy = new TitleOnlyRankingStrategy();
-                break;
-            case 'posts_only':
-                $strategy = new PostsOnlyRankingStrategy();
-                break;
-            case 'default':
-            default:
-                $strategy = new DefaultRankingStrategy();
-                break;
-        }
+        $strategy = match ($strategyKey) {
+            'title_first' => new TitleFirstRankingStrategy(),
+            'exact_title_post' => new ExactTitlePostRankingStrategy(),
+            'title_only' => new TitleOnlyRankingStrategy(),
+            'posts_only' => new PostsOnlyRankingStrategy(),
+            default => new DefaultRankingStrategy(),
+        };
 
         $this->strategies[$strategyKey] = $strategy;
 

@@ -11,25 +11,25 @@ use Illuminate\Contracts\Queue\QueueableCollection;
  */
 trait SerializesAndRestoresWrappedModelIdentifiers
 {
-    protected function getSerializedPropertyValue($value)
+    protected function getSerializedPropertyValue($value, $withRelations = true)
     {
         if ($value instanceof QueueableCollection) {
             $first = $value->first();
 
             if ($first instanceof ScoutModelWrapper) {
                 return new ModelIdentifier(
-                // This is the reason we need to extend this whole method, because the class is otherwise not accessible
-                // We could also extend the RemoveableScoutCollection that would only help for one of the Scout jobs
+                    // This is the reason we need to extend this whole method, because the class is otherwise not accessible
+                    // We could also extend the RemoveableScoutCollection that would only help for one of the Scout jobs
                     get_class($first->getRealModel()),
                     // This can be left as-is, we modified the method called in ScoutModelWrapper
                     $value->getQueueableIds(),
-                    $value->getQueueableRelations(),
+                    $withRelations ? $value->getQueueableRelations() : [],
                     $value->getQueueableConnection()
                 );
             }
         }
 
-        return parent::getRestoredPropertyValue($value);
+        return parent::getSerializedPropertyValue($value, $withRelations);
     }
 
     protected function restoreCollection($value)

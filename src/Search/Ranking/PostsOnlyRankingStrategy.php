@@ -4,11 +4,17 @@ namespace ClarkWinkelmann\Scout\Search\Ranking;
 
 use ClarkWinkelmann\Scout\ScoutStatic;
 use Flarum\Post\Post;
+use Flarum\Search\Database\DatabaseSearchState;
 use Flarum\Search\SearchState;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\Expression;
 
 class PostsOnlyRankingStrategy implements RankingStrategyInterface
 {
+    /**
+     * @param DatabaseSearchState $search
+     */
     public function apply(SearchState $search, string $bit): void
     {
         $exactBit = '"' . str_replace('"', '\\"', $bit) . '"';
@@ -26,76 +32,76 @@ class PostsOnlyRankingStrategy implements RankingStrategyInterface
         // We could replace the "where field" with "where false" everywhere when there are no IDs, but it's easier to
         // keep a FIELD() statement and just hard-code some values to prevent SQL errors
         // we know nothing will be returned anyway, so it doesn't really matter what impact it has on the query
-        $postIdsSql = $postIdsCount > 0 ? str_repeat(', ?', count($postIdsMerged)) : ', 0';
+        $postIdsSql = $postIdsCount > 0 ? str_repeat(', ?', $postIdsCount) : ', 0';
 
         $postExactIdsSql = count($postExactIds) > 0 ? str_repeat(', ?', count($postExactIds)) : ', 0';
 
+        // In Flarum 2.0, DatabaseSearchState::getQuery() returns an Eloquent\Builder instance
         $query = $search->getQuery();
-        $grammar = $query->getGrammar();
-        $prefix = $query->getConnection()->getTablePrefix();
+        $baseQuery = $query instanceof EloquentBuilder ? $query->getQuery() : $query;
+        $grammar = $baseQuery->getGrammar();
+        $prefix = $baseQuery->getConnection()->getTablePrefix();
 
         $allMatchingPostsQuery = Post::whereVisibleTo($search->getActor())
             ->select('posts.discussion_id')
             ->selectRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") as priority", $postIdsMerged)
             ->where('posts.type', 'comment')
-            ->whereIn('id', $postIdsMerged);
+            ->whereIn('posts.id', $postIdsMerged);
 
         // Using wrap() instead of wrapTable() in join subquery to skip table prefixes
-        // Using raw() in the join table name to use the same prefixless name
+        // Using Expression in the join column to use the same prefixless alias
         $bestMatchingPostQuery = Post::query()
             ->select('posts.discussion_id')
             ->selectRaw('min(matching_posts.priority) as min_priority')
             ->join(
                 new Expression('(' . $allMatchingPostsQuery->toSql() . ') ' . $grammar->wrap('matching_posts')),
-                $query->raw('matching_posts.discussion_id'),
+                new Expression('matching_posts.discussion_id'),
                 '=',
                 'posts.discussion_id'
             )
             ->groupBy('posts.discussion_id')
             ->addBinding($allMatchingPostsQuery->getBindings(), 'join');
 
-        // Code based on Flarum\Discussion\Search\Gambit\FulltextGambit
         $subquery = Post::whereVisibleTo($search->getActor())
             ->select('posts.discussion_id')
             ->selectRaw('id as most_relevant_post_id')
             ->join(
                 new Expression('(' . $bestMatchingPostQuery->toSql() . ') ' . $grammar->wrap('best_matching_posts')),
-                $query->raw('best_matching_posts.discussion_id'),
+                new Expression('best_matching_posts.discussion_id'),
                 '=',
                 'posts.discussion_id'
             )
-            ->whereIn('id', $postIdsMerged)
+            ->whereIn('posts.id', $postIdsMerged)
             ->whereRaw("FIELD({$prefix}posts.id" . $postIdsSql . ") = best_matching_posts.min_priority", $postIdsMerged)
             ->addBinding($bestMatchingPostQuery->getBindings(), 'join');
 
         $exactPostsDiscussionsQuery = Post::whereVisibleTo($search->getActor())
             ->select('posts.discussion_id')
             ->where('posts.type', 'comment')
-            ->whereIn('id', $postExactIds)
+            ->whereIn('posts.id', $postExactIds)
             ->groupBy('posts.discussion_id');
 
         $query
             ->selectRaw('COALESCE(posts_ft.most_relevant_post_id, ' . $grammar->wrapTable('discussions') . '.first_post_id) as most_relevant_post_id')
             ->leftJoin(
                 new Expression('(' . $subquery->toSql() . ') ' . $grammar->wrap('posts_ft')),
-                $query->raw('posts_ft.discussion_id'),
+                new Expression('posts_ft.discussion_id'),
                 '=',
                 'discussions.id'
             )
             ->leftJoin(
                 new Expression('(' . $exactPostsDiscussionsQuery->toSql() . ') ' . $grammar->wrap('exact_posts')),
-                $query->raw('exact_posts.discussion_id'),
+                new Expression('exact_posts.discussion_id'),
                 '=',
                 'discussions.id'
             )
-            ->where(function (\Illuminate\Database\Query\Builder $query) {
+            ->where(function (EloquentBuilder|QueryBuilder $query) {
                 $query->whereNotNull('posts_ft.most_relevant_post_id');
             })
             ->groupBy('discussions.id')
             ->addBinding($subquery->getBindings(), 'join')
             ->addBinding($exactPostsDiscussionsQuery->getBindings(), 'join');
 
-        // Burada alias (exact_posts vb.) kullanıldığı için prefix'e gerek duyulmadı
         $search->setDefaultSort(function ($query) use (
             $postExactIds,
             $postExactIdsSql,
