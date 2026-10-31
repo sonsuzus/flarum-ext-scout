@@ -105,7 +105,7 @@ class TitleFirstRankingStrategy implements RankingStrategyInterface
         $query
             ->where(function (EloquentBuilder|QueryBuilder $query) use ($discussionAllIds) {
                 $query
-                    ->whereNotNull('posts_ft.most_relevant_post_id')
+                    ->whereNotNull('most_relevant_post_id')
                     ->orWhereIn('discussions.id', $discussionAllIds);
             })
             ->selectRaw('COALESCE(posts_ft.most_relevant_post_id, ' . $grammar->wrapTable('discussions') . '.first_post_id) as most_relevant_post_id')

@@ -99,7 +99,7 @@ class PostsOnlyRankingStrategy implements RankingStrategyInterface
                 'discussions.id'
             )
             ->where(function (EloquentBuilder|QueryBuilder $query) {
-                $query->whereNotNull('posts_ft.most_relevant_post_id');
+                $query->whereNotNull('most_relevant_post_id');
             })
             ->groupBy('discussions.id')
             ->addBinding($subquery->getBindings(), 'join')
