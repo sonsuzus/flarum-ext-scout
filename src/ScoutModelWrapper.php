@@ -14,13 +14,18 @@ class ScoutModelWrapper extends Model
 
     protected $table = 'scout_should_not_be_used';
 
-    protected Model $realModel;
+    protected ?Model $realModel = null;
 
-    public function __construct(Model $realModel)
+    public function __construct(?Model $realModel = null)
     {
-        parent::__construct([]);
-
         $this->realModel = $realModel;
+
+        parent::__construct([]);
+    }
+
+    public static function resolveObserveAttributes(): array
+    {
+        return [];
     }
 
     public function getRealModel(): Model
