@@ -37,8 +37,10 @@ class TitleOnlyRankingStrategy implements RankingStrategyInterface
 
         // In Flarum 2.0, DatabaseSearchState::getQuery() returns an Eloquent\Builder instance
         $query = $search->getQuery();
-        $baseQuery = $query instanceof EloquentBuilder ? $query->getQuery() : $query;
-        $grammar = $baseQuery->getGrammar();
+        if ($query instanceof EloquentBuilder) {
+            $query = $query->getQuery();
+        }
+        $grammar = $query->getGrammar();
 
         $query
             ->where(function (EloquentBuilder|QueryBuilder $query) use ($discussionAllIds) {

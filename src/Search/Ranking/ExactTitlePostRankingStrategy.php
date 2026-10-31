@@ -54,11 +54,14 @@ class ExactTitlePostRankingStrategy implements RankingStrategyInterface
 
         $postExactIdsSql = count($postExactIds) > 0 ? str_repeat(', ?', count($postExactIds)) : ', 0';
 
-        // In Flarum 2.0, DatabaseSearchState::getQuery() returns an Eloquent\Builder instance
+        // In Flarum 2.0, DatabaseSearchState::getQuery() returns an Eloquent\Builder instance;
+        // unwrap to the underlying Query\Builder so all raw joins, bindings, and closures work identically.
         $query = $search->getQuery();
-        $baseQuery = $query instanceof EloquentBuilder ? $query->getQuery() : $query;
-        $grammar = $baseQuery->getGrammar();
-        $prefix = $baseQuery->getConnection()->getTablePrefix();
+        if ($query instanceof EloquentBuilder) {
+            $query = $query->getQuery();
+        }
+        $grammar = $query->getGrammar();
+        $prefix = $query->getConnection()->getTablePrefix();
 
         $allMatchingPostsQuery = Post::whereVisibleTo($search->getActor())
             ->select('posts.discussion_id')
