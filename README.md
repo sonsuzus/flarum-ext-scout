@@ -40,7 +40,7 @@ composer require dshovchko/flarum-ext-scout -W
 If you are installing from a custom VCS fork for Flarum 2.0:
 
 ```bash
-composer config repositories.scout vcs https://github.com/YOUR_USERNAME/flarum-ext-scout
+composer config repositories.scout vcs https://github.com/sonsuzus/flarum-ext-scout
 composer require dshovchko/flarum-ext-scout:dev-main -W
 ```
 
